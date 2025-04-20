@@ -246,6 +246,64 @@ void compile(FILE *in, FILE *out) {
     footer(out);
 }
 
+void process_line(char *line){
+    char var1[32], var2[32], var3[32], target_var[32];
+    uint64_t offset;
+    char expr[30];
+    int value;
+
+    // 去除可能的换行符（已处理，但确保安全）
+    line[strcspn(line, "\r\n")] = '\0';
+
+    char* at_pos = strstr(line, " at ");
+    if (at_pos) {
+        *at_pos = '\0';
+        sscanf(line, "set int %s = %29[^\n]", var1, expr);
+        sscanf(at_pos + 4, "0x%lx", &offset);
+
+        if (offset >= PAGE_SIZE) {
+            fprintf(stderr, "Error: Offset 0x%lx exceeds page\n", offset);
+            exit(1);
+        }
+
+        // 假设expr_proc, gen_store等函数存在
+        DEBUG_LOG("Compiling expression: %s", expr);
+        strncpy(vars[var_count].name, var1, 31);
+        vars[var_count].offset = offset;
+        strncpy(vars[var_count].value, expr_proc(expr), 31);
+        vars[var_count].value[31] = '\0';
+        int value_ = str_to_int(vars[var_count].value);
+        gen_store(out, offset, value_);
+        var_count++;
+    } else if (sscanf(line, "int %s = %d", var1, &value) == 2) {
+        uint64_t o = allocate_var(var1, 4, 0); // 假设allocate_var存在
+        vars[var_count].offset = o;
+        strncpy(vars[var_count].name, var1, 31);
+        var_count++;
+        gen_store(out, o, value);
+    } else if (sscanf(line, "int %s = %s + %s", var1, var2, var3) == 3) {
+        uint64_t dest = allocate_var(var1, 4, 0);
+        uint64_t src1 = find_var(var2); // 假设find_var存在
+        uint64_t src2 = find_var(var3);
+        vars[var_count].offset = dest;
+        strncpy(vars[var_count].name, var1, 31);
+        var_count++;
+        gen_add(out, dest, src1, src2);
+    } else if (sscanf(line, "println %s", var1)) {
+        uint64_t o = find_var(var1);
+        gen_print(out, o, true);
+    } else if (sscanf(line, "print %s", var1)) {
+        uint64_t o = find_var(var1);
+        gen_print(out, o, false);
+    } else if (strstr(line, "looper") == line) {
+        DEBUG_LOG("looper detected");
+    } else if (sscanf(line, "find %s", target_var) == 1) {
+        uint64_t offset = find_var(target_var);
+        fprintf(out, "\tlea %lu(%%r15), %%rdi\n", offset);
+        fprintf(out, "\tcall print_int\n");
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <input>\n", argv[0]);
