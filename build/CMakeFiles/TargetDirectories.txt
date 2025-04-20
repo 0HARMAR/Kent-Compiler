@@ -1,0 +1,3 @@
+/mnt/c/Just-For-Fun/C++/kent/build/CMakeFiles/rebuild_cache.dir
+/mnt/c/Just-For-Fun/C++/kent/build/CMakeFiles/edit_cache.dir
+/mnt/c/Just-For-Fun/C++/kent/build/CMakeFiles/kentc.dir

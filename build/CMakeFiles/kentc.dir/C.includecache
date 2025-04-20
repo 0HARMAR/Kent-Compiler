@@ -1,0 +1,42 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../include/config.h
+
+../include/convert.h
+
+../include/debug.h
+
+../include/expr_proc.h
+
+../include/variable.h
+stdint.h
+-
+
+/mnt/c/Just-For-Fun/C++/kent/src/kentc.c
+stdio.h
+-
+stdlib.h
+-
+string.h
+-
+stdint.h
+-
+stdbool.h
+-
+expr_proc.h
+/mnt/c/Just-For-Fun/C++/kent/src/expr_proc.h
+variable.h
+/mnt/c/Just-For-Fun/C++/kent/src/variable.h
+convert.h
+/mnt/c/Just-For-Fun/C++/kent/src/convert.h
+config.h
+/mnt/c/Just-For-Fun/C++/kent/src/config.h
+debug.h
+/mnt/c/Just-For-Fun/C++/kent/src/debug.h
+

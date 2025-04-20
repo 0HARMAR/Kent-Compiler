@@ -1,0 +1,30 @@
+// set a in 0x100
+set int a = 10 at 0x100
+
+set int b = 20 at 0x150
+
+set int c = a + b at 0x200
+
+// print c value
+print c
+println c
+
+// show c address
+//find a
+//
+//set int d = 40 at 0x300
+//
+looper(5){
+   a = a + 5
+}
+
+looper(5)
+{
+    
+}
+//if(a<100){
+//    a = a - 100
+//}
+//else(){
+//
+//}

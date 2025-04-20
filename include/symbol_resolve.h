@@ -1,0 +1,1 @@
+int symbol_resolve(char name[32]);
