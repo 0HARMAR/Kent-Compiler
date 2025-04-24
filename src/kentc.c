@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include "expr_proc.h"
 #include "variable.h"
 #include "convert.h"
@@ -12,6 +13,11 @@
 Variable vars[MAX_VARS];
 int var_count = 0;
 uint64_t current_offset = 0;  // 从基地址开始的偏移
+FILE *out;
+
+void extract_line(FILE *in);
+void process_looper(const char* code); // 处理循环器
+
 
 // 生成汇编头（包含mmap调用和基地址加载）
 void header(FILE *out) {
@@ -180,68 +186,7 @@ void compile(FILE *in, FILE *out) {
     
     
     header(out);
-
-    while (fgets(line, sizeof(line), in)) {
-        char cmd[32], var1[32], var2[32], var3[32];
-        char target_var[32];
-        uint64_t offset;
-        char expr[30];
-        int value;
-        
-        char* at_pos = strstr(line, " at ");
-        if (at_pos) {
-            *at_pos = '\0';  // 临时截断字符串
-            sscanf(line, "set int %s = %29[^\n]", var1, expr);
-            sscanf(at_pos + 4, "0x%lx", &offset);  // 跳过"at "后的地址
-
-            if (offset >= PAGE_SIZE) {
-                fprintf(stderr, "Error: Offset 0x%lx exceeds page\n", offset);
-                exit(1);
-            }
-
-            DEBUG_LOG("Compiling expression: %s", expr);
-            vars[var_count] = (Variable){.offset=offset};
-            strncpy(vars[var_count].name, var1, 31);
-            strncpy(vars[var_count].value, expr_proc(expr), sizeof(vars[var_count].value) - 1);
-            vars[var_count].value[sizeof(vars[var_count].value) - 1] = '\0'; // 强制终止
-            int value_ = str_to_int(vars[var_count].value);
-            gen_store(out, offset, value_);
-            var_count++;
-        }
-        else if (sscanf(line, "int %s = %d", var1, &value) == 2) {
-            uint64_t o = allocate_var(var1, 4, 0);
-            vars[var_count] = (Variable){.offset=o};
-            strncpy(vars[var_count].name, var1, 31);
-            var_count++;
-            gen_store(out, o, value);
-        }
-        else if (sscanf(line, "int %s = %s + %s", var1, var2, var3) == 3) {
-            uint64_t dest = allocate_var(var1, 4, 0);
-            uint64_t src1 = find_var(var2);
-            uint64_t src2 = find_var(var3);
-            vars[var_count] = (Variable){.offset=dest};
-            strncpy(vars[var_count].name, var1, 31);
-            var_count++;
-            gen_add(out, dest, src1, src2);
-        }
-        else if (sscanf(line, "println %s", var1)){
-            DEBUG_LOG("CALLED");
-            uint64_t o = find_var(var1);
-            gen_print(out, o,true);
-        }
-        else if (sscanf(line, "print %s", var1)){
-            uint64_t o = find_var(var1);
-            gen_print(out, o,false);
-        }
-        else if (strstr(line, "looper") == line) {
-            DEBUG_LOG("looper deteched");
-        }
-        else if (sscanf(line, "find %s", target_var) == 1) {
-            uint64_t offset = find_var(target_var);
-            fprintf(out,"\tlea %lu(%%r15),%%rdi\n",offset);
-            fprintf(out, "\tcall print_int\n");
-    }
-    }
+    extract_line(in);
 
     footer(out);
 }
@@ -295,13 +240,60 @@ void process_line(char *line){
     } else if (sscanf(line, "print %s", var1)) {
         uint64_t o = find_var(var1);
         gen_print(out, o, false);
-    } else if (strstr(line, "looper") == line) {
-        DEBUG_LOG("looper detected");
     } else if (sscanf(line, "find %s", target_var) == 1) {
         uint64_t offset = find_var(target_var);
         fprintf(out, "\tlea %lu(%%r15), %%rdi\n", offset);
         fprintf(out, "\tcall print_int\n");
     }
+}
+
+void extract_line(FILE *in) {
+    int c;
+    int in_looper = 0;    // 是否在looper块中
+    int brace_depth = 0;  // 大括号嵌套深度
+    char buffer[4096];    // 存储代码块的缓冲区
+    int buf_pos = 0;      // 缓冲区当前位置
+
+    // 临时存储当前识别的关键字
+    char keyword[16] = {0};
+    int key_pos = 0;
+
+    while ((c = fgetc(in)) != EOF) {
+        if (in_looper) {
+            // 记录代码块内容
+            if (buf_pos < sizeof(buffer)-1) buffer[buf_pos++] = c;
+
+            // 大括号匹配逻辑
+            if (c == '{') brace_depth++;
+            else if (c == '}') {
+                if (--brace_depth == 0) {  // 结束匹配
+                    buffer[buf_pos] = '\0';
+                    process_looper(buffer);
+                    in_looper = buf_pos = 0;
+                }
+            }
+        } else {
+            // 关键字检测逻辑
+            if (isalpha(c)) {  // 构建关键字
+                if (key_pos < sizeof(keyword)-1)
+                    keyword[key_pos++] = tolower(c);
+            } else {
+                if (strcmp(keyword, "looper") == 0) {  // 触发looper检测
+                    in_looper = 1;
+                    brace_depth = 0;
+                    buf_pos = 0;
+                    memset(buffer, 0, sizeof(buffer));
+                    if (c == '{') brace_depth++;  // 处理紧随的{
+                }
+                memset(keyword, 0, sizeof(keyword));
+                key_pos = 0;
+            }
+        }
+    }
+}
+
+void process_looper(const char * code) {
+    DEBUG_LOG("looper detected");
 }
 
 int main(int argc, char *argv[]) {
@@ -316,7 +308,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    FILE *out = fopen("output.s", "w");
+    out = fopen("output.s", "w");
     if (!out) {
         perror("Error opening output");
         fclose(in);
