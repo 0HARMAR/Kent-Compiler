@@ -1,6 +1,7 @@
 #include "variable.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <cstring>
 #include "config.h"
 
 extern Variable vars[MAX_VARS];

@@ -4,20 +4,73 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <string>
+#include <iostream>
 #include "expr_proc.h"
 #include "variable.h"
 #include "convert.h"
 #include "config.h"
 #include "debug.h"
 
+#define LINE_BUF_SIZE 256
+#define CODE_BUF_SIZE 4096
 Variable vars[MAX_VARS];
 int var_count = 0;
 uint64_t current_offset = 0;  // 从基地址开始的偏移
 FILE *out;
 
-void extract_line(FILE *in);
-void process_looper(const char* code); // 处理循环器
+using namespace std;
 
+void walk_through_file_stream(FILE *in);
+void process_looper(const char* code); // 处理循环器
+int peek_char(FILE *in);
+
+class LineGenerator {
+public:
+    LineGenerator(const char* input) : input_(input), pos_(0) {
+        if (!input_) {
+            len_ = 0;
+        } else {
+            len_ = strlen(input_);
+        }
+    }
+
+    // Get the next line, returns empty string when done
+    std::string next() {
+        if (pos_ >= len_) {
+            return "";
+        }
+
+        std::string line;
+        while (pos_ < len_) {
+            char c = input_[pos_++];
+
+            // Handle Windows-style \r\n
+            if (c == '\r' && pos_ < len_ && input_[pos_] == '\n') {
+                pos_++; // Skip \n
+                break;
+            }
+            // Handle Unix-style \n
+            if (c == '\n') {
+                break;
+            }
+
+            line += c;
+        }
+
+        return line;
+    }
+
+    // Check if there are more lines
+    bool hasNext() const {
+        return pos_ < len_;
+    }
+
+private:
+    const char* input_;
+    size_t pos_;
+    size_t len_;
+};
 
 // 生成汇编头（包含mmap调用和基地址加载）
 void header(FILE *out) {
@@ -116,6 +169,15 @@ void gen_print(FILE *out, uint64_t offset,bool newline) {
     fprintf(out, "\tcall print_int\n");
 }
 
+void holdPrintln(char var[32]){
+    uint64_t o = find_var(var);
+    gen_print(out, o, true);
+}
+
+void hold_print(char var[32]){
+    uint64_t o = find_var(var);
+    gen_print(out, o, false);
+}
 // 主编译函数
 void compile(FILE *in, FILE *out) {
     char line[256];
@@ -186,9 +248,15 @@ void compile(FILE *in, FILE *out) {
     
     
     header(out);
-    extract_line(in);
+    walk_through_file_stream(in);
 
     footer(out);
+}
+
+void hold_find(char target_var[32]) {
+    uint64_t offset = find_var(target_var);
+    fprintf(out, "\tlea %lu(%%r15), %%rdi\n", offset);
+    fprintf(out, "\tcall print_int\n");
 }
 
 void process_line(char *line){
@@ -235,64 +303,130 @@ void process_line(char *line){
         var_count++;
         gen_add(out, dest, src1, src2);
     } else if (sscanf(line, "println %s", var1)) {
-        uint64_t o = find_var(var1);
-        gen_print(out, o, true);
+        holdPrintln(var1);
     } else if (sscanf(line, "print %s", var1)) {
-        uint64_t o = find_var(var1);
-        gen_print(out, o, false);
+        hold_print(var1);
     } else if (sscanf(line, "find %s", target_var) == 1) {
-        uint64_t offset = find_var(target_var);
-        fprintf(out, "\tlea %lu(%%r15), %%rdi\n", offset);
-        fprintf(out, "\tcall print_int\n");
+        hold_find(target_var);
     }
 }
 
-void extract_line(FILE *in) {
+void walk_through_file_stream(FILE *in) {
+    // 行处理相关变量
+    char line_buf[LINE_BUF_SIZE] = {0};
+    int line_pos = 0;
+
+    // looper检测相关变量
+    bool in_looper = false;      // 是否处于looper代码块
+    char key_buf[16] = {0};      // 关键字缓冲区
+    int key_pos = 0;             // 关键字位置
+
+    // 大括号处理相关变量
+    int brace_depth = 0;         // 大括号嵌套深度
+    char code_buf[CODE_BUF_SIZE] = {0};  // 代码块缓冲区
+    int code_pos = 0;            // 代码块位置
+
     int c;
-    int in_looper = 0;    // 是否在looper块中
-    int brace_depth = 0;  // 大括号嵌套深度
-    char buffer[4096];    // 存储代码块的缓冲区
-    int buf_pos = 0;      // 缓冲区当前位置
-
-    // 临时存储当前识别的关键字
-    char keyword[16] = {0};
-    int key_pos = 0;
-
     while ((c = fgetc(in)) != EOF) {
         if (in_looper) {
-            // 记录代码块内容
-            if (buf_pos < sizeof(buffer)-1) buffer[buf_pos++] = c;
+            /* 大括号代码块处理模式 */
+            // 记录代码字符（保留换行符）
+            if (code_pos < CODE_BUF_SIZE-1) {
+                code_buf[code_pos++] = c;
+            } else {
+                fprintf(stderr, "Looper code too long!\n");
+                exit(1);
+            }
 
-            // 大括号匹配逻辑
+            // 大括号深度计算
             if (c == '{') brace_depth++;
             else if (c == '}') {
-                if (--brace_depth == 0) {  // 结束匹配
-                    buffer[buf_pos] = '\0';
-                    process_looper(buffer);
-                    in_looper = buf_pos = 0;
+                if (--brace_depth == 0) {  // 代码块结束
+                    code_buf[code_pos] = '\0';
+
+                    process_looper(code_buf);
+                    // 重置状态
+                    in_looper = false;
+                    code_pos = brace_depth = 0;
                 }
             }
         } else {
-            // 关键字检测逻辑
-            if (isalpha(c)) {  // 构建关键字
-                if (key_pos < sizeof(keyword)-1)
-                    keyword[key_pos++] = tolower(c);
-            } else {
-                if (strcmp(keyword, "looper") == 0) {  // 触发looper检测
-                    in_looper = 1;
-                    brace_depth = 0;
-                    buf_pos = 0;
-                    memset(buffer, 0, sizeof(buffer));
-                    if (c == '{') brace_depth++;  // 处理紧随的{
+            /* 正常行处理模式 */
+            // 换行符处理逻辑
+            if (c == '\r' || c == '\n') {
+                // 处理Windows换行
+                if (c == '\r' && peek_char(in) == '\n') {
+                    fgetc(in); // 消耗\n
                 }
-                memset(keyword, 0, sizeof(keyword));
+
+                // 处理完整行
+                if (line_pos > 0) {
+                    line_buf[line_pos] = '\0';
+                    process_line(line_buf);
+                    line_pos = 0;
+                }
+                continue;
+            }
+
+
+            // 构建行缓冲区
+            if (line_pos < LINE_BUF_SIZE-1) {
+                line_buf[line_pos++] = c;
+            } else {
+                fprintf(stderr, "Line too long!\n");
+                exit(1);
+            }
+
+            /* 并行检测looper关键字 */
+            if (isalpha(c)) {
+                // 构建关键字缓冲区（小写）
+                if (key_pos < sizeof(key_buf)-1) {
+                    key_buf[key_pos++] = tolower(c);
+                }
+            } else {
+                // 非字母字符触发关键字检查
+                if (strcmp(key_buf, "looper") == 0) {
+                    // 进入looper处理模式
+                    in_looper = true;
+                    brace_depth = 0;
+                    code_pos = 0;
+
+                    // 收集触发后的第一个字符（可能是{）
+                    if (code_pos < CODE_BUF_SIZE-1) {
+                        code_buf[code_pos++] = c;
+                    }
+
+                    // 如果当前字符是大括号则计算深度
+                    if (c == '{') brace_depth++;
+                }
+                // 重置关键字检测
+                memset(key_buf, 0, sizeof(key_buf));
                 key_pos = 0;
             }
         }
     }
+
+    // 处理文件末尾的未完成行
+    if (line_pos > 0) {
+        line_buf[line_pos] = '\0';
+        process_line(line_buf);
+    }
+
+}
+
+// 查看下一个字符的辅助函数
+int peek_char(FILE *in) {
+    int c = fgetc(in);
+    ungetc(c, in);
+    return c;
 }
 
 void process_looper(const char * code) {
+    cout << code << flush;
+//    LineGenerator lineGenerator = LineGenerator(code);
+//    if(lineGenerator.hasNext()){
+//        cout << lineGenerator.next();
+//    }
     DEBUG_LOG("looper detected");
 }
 

@@ -1,4 +1,5 @@
-#include <stdlib.h>
+#include <cstdlib>
+#include <cstdio>
 
 extern char ret_num_str[32];
 
