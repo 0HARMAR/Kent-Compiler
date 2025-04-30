@@ -1,1 +1,0 @@
-/usr/bin/cc    CMakeFiles/kentc.dir/src/convert.c.o CMakeFiles/kentc.dir/src/expr_proc.c.o CMakeFiles/kentc.dir/src/kentc.c.o CMakeFiles/kentc.dir/src/symbol_resolve.c.o  -o kentc 

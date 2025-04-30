@@ -398,6 +398,8 @@ void walk_through_file_stream(FILE *in) {
 
                     // 如果当前字符是大括号则计算深度
                     if (c == '{') brace_depth++;
+
+                    line_pos = 0;
                 }
                 // 重置关键字检测
                 memset(key_buf, 0, sizeof(key_buf));
