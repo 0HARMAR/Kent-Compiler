@@ -1,0 +1,5 @@
+.idea
+build
+cmake-build-release
+cmake-build-debug
+grammer_analyzor
