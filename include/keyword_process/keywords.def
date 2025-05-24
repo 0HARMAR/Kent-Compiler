@@ -1,0 +1,7 @@
+KEYWORD("set",     TOKEN_SET,      handle_set)
+KEYWORD("at",      TOKEN_AT,       handle_at)
+KEYWORD("move",    TOKEN_MOVE,     handle_move)
+KEYWORD("copy",    TOKEN_COPY,     handle_copy)
+KEYWORD("print",   TOKEN_PRINT,    handle_print)
+KEYWORD("println", TOKEN_PRINTLN,  handle_println)
+KEYWORD("find",    TOKEN_FIND,     handle_find)

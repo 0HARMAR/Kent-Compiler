@@ -1,0 +1,6 @@
+set int counter = 0 at 0x1000;
+print counter;
+inc counter by 5;
+set byte data = 0xFF in HEAP;
+move 0x2000 to counter;
+find 0x1234;

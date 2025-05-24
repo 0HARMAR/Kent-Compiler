@@ -1,0 +1,7 @@
+.idea
+cmake-build-debug
+cmake-build-release
+build
+grammer_analyzor/build
+grammer_analyzor/grammer
+grammer_analyzor/test/*.class
